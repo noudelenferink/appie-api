@@ -352,7 +352,7 @@ $app->post('/trainings', function () use ($app) {
 
 /**
  * Deletes the given training
- * method POST
+ * method DELETE
  * url /seasons/:seasonID/trainings
  */
 $app->delete('/trainings/:trainingID', function ($trainingID) use ($app) {

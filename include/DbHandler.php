@@ -588,7 +588,6 @@ class DbHandler {
         if ($result) {
             // match row created
             $newTrainingID = $this->conn->insert_id;
-            $res = $this->createPlayerTrainings($seasonID, $newTrainingID);
             return $newTrainingID;
         } else {
             // match failed to create
@@ -1084,6 +1083,7 @@ class DbHandler {
           , p.SurName
           , p.SurNamePrefix
           , sme.EventID
+          , sme.Minute
           , e.Name as EventName
           , e.IsPrimaryEvent
           , sme.ReferenceSoccerMatchEventID
