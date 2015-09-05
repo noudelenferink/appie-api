@@ -236,6 +236,7 @@ class DbHandler {
           , ta.TeamLogoFile as AwayTeamLogo
           , md.Date as MatchDate
           , ct.DefaultStartTime
+          , cr.RoundNumber
           FROM SoccerMatch sm
           JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID AND cr.CompetitionID = ?
           JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = ?
