@@ -675,11 +675,12 @@ $app->post('/soccer-matches/:id/events', function ($soccerMatchID) use ($app) {
     $body = json_decode($app->request()->getBody());
     $eventID = $body->{'EventID'};
     $playerID = $body->{'PlayerID'};
+    $minute = $body->{'Minute'};
     $referenceSoccerMatchEventID = array_key_exists('ReferenceSoccerMatchEventID', $body) ? $body->{'ReferenceSoccerMatchEventID'} : NULL;
     $db = new DbHandler();
 
     // creating new soccer match event
-    $newSoccerMatchEventID = $db->createSoccerMatchEvent($soccerMatchID, $eventID, $playerID, $referenceSoccerMatchEventID);
+    $newSoccerMatchEventID = $db->createSoccerMatchEvent($soccerMatchID, $eventID, $playerID, $minute, $referenceSoccerMatchEventID);
 
     if ($newSoccerMatchEventID != NULL) {
       $response["Error"] = false;

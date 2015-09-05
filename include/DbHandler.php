@@ -227,21 +227,23 @@ class DbHandler {
      * @param String $user_id id of the user
      * @param String $competition_id id of the competition
      */
-    public function getSoccerMatchesByCompetition($user_id, $competition_id) {
+    public function getSoccerMatchesByCompetition($user_id, $competitionID) {
         $stmt = $this->conn->prepare
-        ("SELECT *
+        ("SELECT sm.*
           , th.Name as HomeTeamName
           , ta.Name as AwayTeamName
           , th.TeamLogoFile as HomeTeamLogo
           , ta.TeamLogoFile as AwayTeamLogo
           , md.Date as MatchDate
-          FROM SoccerMatch m
-          JOIN CompetitionRound cr on m.CompetitionRoundID = cr.CompetitionRoundID AND cr.CompetitionID = ?
+          , ct.DefaultStartTime
+          FROM SoccerMatch sm
+          JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID AND cr.CompetitionID = ?
+          JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = ?
           JOIN Matchday md on cr.MatchdayID = md.MatchdayID
-          JOIN Team th on m.HomeTeamID = th.TeamID
-          JOIN Team ta on m.AwayTeamID = ta.TeamID
+          JOIN Team th on sm.HomeTeamID = th.TeamID
+          JOIN Team ta on sm.AwayTeamID = ta.TeamID
         ");
-        $stmt->bind_param("i", $competition_id);
+        $stmt->bind_param("ii", $competitionID, $competitionID);
         $stmt->execute();
         $tasks = $stmt->get_result();
         $stmt->close();
@@ -878,25 +880,27 @@ class DbHandler {
 
     public function getSoccerMatchByID($user_id, $matchID) {
         $stmt = $this->conn->prepare
-        ("SELECT SoccerMatchID
-          ,m.HomeTeamID
+        ("SELECT sm.SoccerMatchID
+          ,sm.HomeTeamID
           ,th.Name as HomeTeam
-          ,m.HomeGoals
-          ,m.AwayTeamID
+          ,sm.HomeGoals
+          ,sm.AwayTeamID
           ,ta.Name as AwayTeam
-          ,m.AwayGoals
+          ,sm.AwayGoals
           , th.TeamLogoFile as HomeLogo
           , ta.TeamLogoFile as AwayLogo
           , md.Date as MatchDate
           , md.SeasonID
+          , ct.DefaultStartTime
           , f.Description as Formation
-          FROM SoccerMatch m
-          JOIN Team th on m.HomeTeamID = th.TeamID
-          JOIN Team ta on m.AwayTeamID = ta.TeamID
-          LEFT JOIN CompetitionRound cr on m.CompetitionRoundID = cr.CompetitionRoundID
+          FROM SoccerMatch sm
+          JOIN Team th on sm.HomeTeamID = th.TeamID
+          JOIN Team ta on sm.AwayTeamID = ta.TeamID
+          LEFT JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID
+          JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = cr.CompetitionID
           LEFT JOIN Matchday md on cr.MatchdayID = md.MatchdayID
-          LEFT JOIN Formation f on m.FormationID = f.FormationID
-          WHERE m.SoccerMatchID = ?
+          LEFT JOIN Formation f on sm.FormationID = f.FormationID
+          WHERE sm.SoccerMatchID = ?
         ");
         $stmt->bind_param("i", $matchID);
         $stmt->execute();
@@ -1100,12 +1104,12 @@ class DbHandler {
         return $events;
     }
 
-    public function createSoccerMatchEvent($soccerMatchID, $eventID, $playerID, $referenceSoccerMatchEventID) {
+    public function createSoccerMatchEvent($soccerMatchID, $eventID, $playerID, $minute, $referenceSoccerMatchEventID) {
       $stmt = $this->conn->prepare
-        ("INSERT INTO SoccerMatchEvent (SoccerMatchID, EventID, PlayerID, ReferenceSoccerMatchEventID)
-          VALUES (?, ?, ?, ?)
+        ("INSERT INTO SoccerMatchEvent (SoccerMatchID, EventID, PlayerID, Minute, ReferenceSoccerMatchEventID)
+          VALUES (?, ?, ?, ?, ?)
         ");
-        $stmt->bind_param("iiii", $soccerMatchID, $eventID, $playerID, $referenceSoccerMatchEventID);
+        $stmt->bind_param("iiiii", $soccerMatchID, $eventID, $playerID, $minute, $referenceSoccerMatchEventID);
         $result = $stmt->execute();
         $stmt->close();
         if ($result) {
