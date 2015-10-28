@@ -894,6 +894,7 @@ class DbHandler {
           , md.SeasonID
           , ct.DefaultStartTime
           , f.Description as Formation
+          , f.FormationID
           FROM SoccerMatch sm
           JOIN Team th on sm.HomeTeamID = th.TeamID
           JOIN Team ta on sm.AwayTeamID = ta.TeamID
@@ -1094,7 +1095,7 @@ class DbHandler {
           , sme.ReferenceSoccerMatchEventID
           FROM SoccerMatchEvent sme
           JOIN Event e on sme.EventID = e.EventID
-          JOIN Player p on sme.PlayerID = p.PlayerID
+          LEFT JOIN Player p on sme.PlayerID = p.PlayerID
           WHERE sme.SoccerMatchID = ?
         ");
 
@@ -1142,31 +1143,57 @@ class DbHandler {
      */
     public function getTeamCompetitionStats($user_id, $competitionID, $teamID) {
         $stmt = $this->conn->prepare
-        ("SELECT pt.PlayerID
-          , GetPlayerName(pt.PlayerID) as FullName
-          , p.SurName
-          , IFNULL(stats.Goals, 0) AS Goals
-          , IFNULL(stats.Penalties, 0) AS Penalties
-          , IFNULL(stats.Assists, 0) AS Assists
-          , IFNULL(stats.YellowCards, 0) AS YellowCards
-          , IFNULL(stats.RedCards, 0) AS RedCards
+        ("SELECT
+          pt.PlayerID,
+          GetPlayerName(pt.PlayerID) as FullName,
+          pl.SurName,
+           IFNULL(ms.Appearances, 0) AS Appearances,
+           SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS Goals,
+           SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS Penalties,
+           SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS Assists,
+           SUM(CASE WHEN sme.EventID = 2 THEN 1 ELSE 0 END) AS YellowCards,
+           SUM(CASE WHEN sme.EventID = 3 THEN 1 ELSE 0 END) AS RedCards,
+           IFNULL(ms.Minutes, 0) AS Minutes
           FROM PlayerTeam pt
-          JOIN Player p on p.PlayerID = pt.PlayerID
-          LEFT JOIN (SELECT sme.PlayerID
-                    , SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS Goals
-                    , SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS Penalties
-                    , SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS Assists
-                    , SUM(CASE WHEN sme.EventID = 2 THEN 1 ELSE 0 END) AS YellowCards
-                    , SUM(CASE WHEN sme.EventID = 3 THEN 1 ELSE 0 END) AS RedCards
-                    FROM SoccerMatchEvent sme
-                    JOIN SoccerMatch m ON sme.SoccerMatchID = m.SoccerMatchID
-                    JOIN CompetitionRound cr ON m.CompetitionRoundID = cr.CompetitionRoundID
-                    WHERE cr.CompetitionID = ?
-                    GROUP BY sme.PlayerID) stats on pt.PlayerID = stats.PlayerID
-          WHERE pt.TeamID = ? AND pt.SeasonID = (SELECT SeasonID FROM Competition WHERE CompetitionID = ?)
+          JOIN Player pl on pt.PlayerID = pl.PlayerID
+          LEFT JOIN Competition c on pt.SeasonID = c.SeasonID
+          LEFT JOIN CompetitionRound cr on cr.CompetitionID = c.CompetitionID
+          LEFT JOIN SoccerMatch sm on cr.CompetitionRoundID = sm.CompetitionRoundID
+          LEFT JOIN SoccerMatchEvent sme on pt.PlayerID = sme.PlayerID and sm.SoccerMatchID = sme.SoccerMatchID
+          LEFT JOIN (SELECT
+              pt.PlayerID,
+            COUNT(DISTINCT psm.PlayerSoccerMatchID) AS Appearances,
+              SUM( CASE
+              -- Basisspeler
+            WHEN p.PositionTypeID IN (1,2)
+              THEN 90 -
+              CASE
+                WHEN sme.EventID = 4
+                THEN CASE
+                    WHEN sme.ReferenceSoccerMatchEventID IS NOT NULL
+                    THEN sme.Minute
+                    ELSE 90 - sme.Minute
+                    END
+                 ELSE 0
+               END
+              -- Niet gespeeld
+              ELSE 0
+            END) AS Minutes
+          FROM
+              PlayerTeam pt
+          LEFT JOIN PlayerSoccerMatch psm on pt.PlayerID = psm.PlayerID -- and psm.SoccerMatchID = 298
+          LEFT JOIN SoccerMatch sm on psm.SoccerMatchID = sm.SoccerMatchID
+          LEFT JOIN Position p on psm.PositionID = p.PositionID
+          LEFT JOIN SoccerMatchEvent sme on psm.PlayerID = sme.PlayerID and sme.SoccerMatchID = psm.SoccerMatchID and sme.EventID = 4
+          LEFT JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID
+          LEFT JOIN Competition c on cr.CompetitionID = c.CompetitionID
+          WHERE pt.teamid = ? and cr.CompetitionID = ? and c.SeasonID = pt.SeasonID
+          group by pt.PlayerID) ms on pt.PlayerID = ms.PlayerID
+          where pt.TeamID = ? and c.CompetitionID = ?
+          group by pt.PlayerID
         ");
 
-        $stmt->bind_param("iii", $competitionID, $teamID, $competitionID);
+        $stmt->bind_param("iiii", $teamID, $competitionID, $teamID, $competitionID);
         $stmt->execute();
         $stats = $stmt->get_result();
         $stmt->close();

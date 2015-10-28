@@ -181,6 +181,10 @@ $app->post('/login', function () use ($app) {
 
     $response = createToken($user, $userRoles, $userCompetitions);
     echo $response;
+  } else {
+
+    /* No scope so respond with 401 Unauthorized */
+    echoRespnse(401, 'Invalid username or password');
   }
 });
 
@@ -323,8 +327,8 @@ $app->get('/trainings/:trainingID', function ($trainingID) {
  */
 $app->post('/trainings', function () use ($app) {
   $response = array();
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $trainingDate = json_decode($app->request()->getBody())->{'TrainingDate'};
     $seasonID = json_decode($app->request()->getBody())->{'SeasonID'};
     $db = new DbHandler();
@@ -404,8 +408,8 @@ $app->post('/trainings/:trainingID', function ($trainingID) use ($app) {
   //$trainingDate = $app->request()->post('trainingDate');
   $response = array();
 
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $db = new DbHandler();
     foreach ($attendees as $attendee) {
       $playerID = $attendee->{'PlayerID'};
@@ -460,8 +464,8 @@ $app->get('/players', function() {
  */
 $app->post('/players', function () use ($app) {
   $response = array();
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $body = json_decode($app->request()->getBody());
     $firstName = $body->{'FirstName'};
     $surName = $body->{'SurName'};
@@ -618,33 +622,38 @@ $app->get('/soccer-matches/:id/', function ($soccerMatchID) {
 });
 
 $app->post('/soccer-matches', function() use ($app) {
-            $homeTeamID = json_decode($app->request()->getBody())->{'HomeTeamID'};
-            $awayTeamID = json_decode($app->request()->getBody())->{'AwayTeamID'};
-            $competitionRoundID = json_decode($app->request()->getBody())->{'CompetitionRoundID'};
+  if (in_array("admin", $app->jwt->roles)) {
+    $homeTeamID = json_decode($app->request()->getBody())->{'HomeTeamID'};
+    $awayTeamID = json_decode($app->request()->getBody())->{'AwayTeamID'};
+    $competitionRoundID = json_decode($app->request()->getBody())->{'CompetitionRoundID'};
 
-            $response = array();
+    $response = array();
 
-            if($homeTeamID == $awayTeamID) {
-              $response["Error"] = true;
-              $response["Message"] = "Home team can not be the same as away team";
-              echoRespnse(400, $response);
-            }
+    if($homeTeamID == $awayTeamID) {
+      $response["Error"] = true;
+      $response["Message"] = "Home team can not be the same as away team";
+      echoRespnse(400, $response);
+    }
 
-            $db = new DbHandler();
-            // creating new match
-            $matchID = $db->createSoccerMatch($competitionRoundID, $homeTeamID, $awayTeamID);
+    $db = new DbHandler();
+    // creating new match
+    $matchID = $db->createSoccerMatch($competitionRoundID, $homeTeamID, $awayTeamID);
 
-            if ($matchID != NULL) {
-                $response["error"] = false;
-                $response["message"] = "Match created successfully";
-                $response["matchID"] = $matchID;
-            } else {
-                $response["error"] = true;
-                $response["message"] = "Failed to create match. Please try again";
-            }
-            echoRespnse(201, $response);
-
-        });
+    if ($matchID != NULL) {
+        $response["error"] = false;
+        $response["message"] = "Match created successfully";
+        $response["matchID"] = $matchID;
+    } else {
+        $response["error"] = true;
+        $response["message"] = "Failed to create match. Please try again";
+    }
+    echoRespnse(201, $response);
+  }
+else {
+    /* No scope so respond with 401 Unauthorized */
+    echoRespnse(401, $response);
+  }
+});
 
 $app->delete('/soccer-matches/:id', function($soccerMatchID) use ($app) {
         $response = array();
@@ -670,8 +679,8 @@ $app->put('/soccer-matches/:id', function($soccerMatchID) use ($app) {
 
 $app->post('/soccer-matches/:id/events', function ($soccerMatchID) use ($app) {
   $response = array();
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $body = json_decode($app->request()->getBody());
     $eventID = $body->{'EventID'};
     $playerID = $body->{'PlayerID'};
@@ -809,8 +818,8 @@ $app->get('/competitions/:competitionID/team-stats/:teamID', function ($competit
  */
 $app->post('/competitions', function () use ($app) {
   $response = array();
-  // if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $seasonID = json_decode($app->request()->getBody())->{'SeasonID'};
     $name = json_decode($app->request()->getBody())->{'Name'};
 
@@ -844,8 +853,8 @@ $app->post('/competitions', function () use ($app) {
  */
 $app->post('/competitions/:id/competition-rounds', function ($competitionID) use ($app) {
   $response = array();
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $matchdayID = json_decode($app->request()->getBody())->{'MatchdayID'};
     $roundNumber = json_decode($app->request()->getBody())->{'RoundNumber'};
     $description = json_decode($app->request()->getBody())->{'Description'};
@@ -928,8 +937,8 @@ $app->get('/competitions/:id/teams', function($competitionID) {
  */
 $app->post('/competitions/:id/teams', function ($competitionID) use ($app) {
   $response = array();
-  // if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $teamID = json_decode($app->request()->getBody())->{'TeamID'};
     $defaultStartTime = json_decode($app->request()->getBody())->{'DefaultStartTime'};
 
@@ -1022,8 +1031,8 @@ $app->get('/seasons/:id/', function($seasonID) {
  */
 $app->post('/matchdays', function () use ($app) {
   $response = array();
-  // if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $matchdayDate = json_decode($app->request()->getBody())->{'MatchdayDate'};
     $seasonID = json_decode($app->request()->getBody())->{'SeasonID'};
     $db = new DbHandler();
@@ -1114,8 +1123,8 @@ $app->get('/teams/:teamID', function($teamID) use ($app) {
  */
 $app->post('/teams/:teamID/players', function ($teamID) use ($app) {
   $response = array();
-  //if (in_array("admin", $app->jwt->roles)) {
-  if(true) {
+  if (in_array("admin", $app->jwt->roles)) {
+  // if(true) {
     $body = json_decode($app->request()->getBody());
     $playerID = $body->{'PlayerID'};
     $seasonID  = $body->{'SeasonID'};
