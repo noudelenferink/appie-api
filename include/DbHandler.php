@@ -1147,13 +1147,14 @@ class DbHandler {
           pt.PlayerID,
           GetPlayerName(pt.PlayerID) as FullName,
           pl.SurName,
-           IFNULL(ms.Appearances, 0) AS Appearances,
            SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS Goals,
            SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS Penalties,
            SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS Assists,
            SUM(CASE WHEN sme.EventID = 2 THEN 1 ELSE 0 END) AS YellowCards,
            SUM(CASE WHEN sme.EventID = 3 THEN 1 ELSE 0 END) AS RedCards,
-           IFNULL(ms.Minutes, 0) AS Minutes
+           IFNULL(ms.Minutes, 0) AS Minutes,
+           IFNULL(ps.Appearances, 0) AS Appearances,
+           IFNULL(ps.MatchesOnBench, 0) AS MatchesOnBench
           FROM PlayerTeam pt
           JOIN Player pl on pt.PlayerID = pl.PlayerID
           LEFT JOIN Competition c on pt.SeasonID = c.SeasonID
@@ -1162,7 +1163,6 @@ class DbHandler {
           LEFT JOIN SoccerMatchEvent sme on pt.PlayerID = sme.PlayerID and sm.SoccerMatchID = sme.SoccerMatchID
           LEFT JOIN (SELECT
               pt.PlayerID,
-            COUNT(DISTINCT psm.PlayerSoccerMatchID) AS Appearances,
               SUM( CASE
               -- Basisspeler
             WHEN p.PositionTypeID IN (1,2)
@@ -1189,6 +1189,16 @@ class DbHandler {
           LEFT JOIN Competition c on cr.CompetitionID = c.CompetitionID
           WHERE pt.teamid = ? and cr.CompetitionID = ? and c.SeasonID = pt.SeasonID
           group by pt.PlayerID) ms on pt.PlayerID = ms.PlayerID
+          LEFT JOIN (SELECT c.CompetitionID,
+                            psm.PlayerID,
+                            SUM(CASE WHEN p.PositionTypeID IN (1,2) THEN 1 ELSE 0 END) AS Appearances,
+                            SUM(CASE WHEN p.PositionTypeID = 2 THEN 1 ELSE 0 END) AS MatchesOnBench
+                            FROM PlayerSoccerMatch psm
+                            JOIN SoccerMatch sm on psm.SoccerMatchID = sm.SoccerMatchID
+                            JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID
+                            JOIN Competition c on cr.CompetitionID = c.CompetitionID
+                            JOIN Position p on psm.PositionID = p.PositionID
+                            GROUP BY c.CompetitionID, psm.PlayerID ) ps on pt.PlayerID = ps.PlayerID and c.CompetitionID = ps.CompetitionID
           where pt.TeamID = ? and c.CompetitionID = ?
           group by pt.PlayerID
         ");
