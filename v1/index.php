@@ -50,7 +50,7 @@ function createToken($user, $roles, $competitions) {
   $seasons = [array('SeasonID' => 3, 'Description' => '2015-2016')];
   $token = array(
     "iat" => $date->getTimestamp() ,
-    "exp" => $date->getTimestamp() + 3600,
+    "exp" => $date->getTimestamp() + 86400,
     "username" => $user["Name"],
     "roles" => $roles,
     "competitions" => $competitions,
@@ -281,6 +281,7 @@ $app->get('/trainings/:trainingID/teams/:teamID', function ($trainingID, $teamID
   }
   $response["Training"]["TrainingID"] = $training["TrainingID"];
   $response["Training"]["TrainingDate"] = $training["TrainingDate"];
+  $response["Training"]["TeamID"] = $training["TeamID"];
   $response["Training"]["Attendees"] = $attendees;
 
   echoRespnse(200, $response);
@@ -315,6 +316,8 @@ $app->get('/trainings/:trainingID', function ($trainingID) {
   }
   $response["Training"]["TrainingID"] = $training["TrainingID"];
   $response["Training"]["TrainingDate"] = $training["TrainingDate"];
+  $response["Training"]["IsBonus"] = (bool)$training["IsBonus"];
+  $response["Training"]["TeamID"] = $training["TeamID"];
   $response["Training"]["Attendees"] = $attendees;
 
   echoRespnse(200, $response);
@@ -589,6 +592,26 @@ $app->get('/competitions/:id/soccer-matches', function ($competition_id) {
   echoRespnse(200, $response);
 });
 
+$app->get('/teams/:teamID/seasons/:seasonID/soccer-matches', function ($teamID, $seasonID) {
+  global $user_id;
+  $response = array();
+  $db = new DbHandler();
+
+  // fetching all soccer matches for the given season and team
+  $result = $db->getSoccerMatchesBySeasonAndTeam($user_id, $seasonID, $teamID);
+
+  $response["Error"] = false;
+  $response["SoccerMatches"] = array();
+
+  // looping through result and preparing soccer matches array
+  while ($soccerMatch = $result->fetch_assoc()) {
+    $soccerMatch["IsPracticeMatch"] = (bool)$soccerMatch["IsPracticeMatch"];
+    array_push($response["SoccerMatches"], $soccerMatch);
+  }
+
+  echoRespnse(200, $response);
+});
+
 $app->get('/soccer-matches/:id/', function ($soccerMatchID) {
   global $user_id;
   $response = array();
@@ -698,7 +721,7 @@ $app->post('/soccer-matches/:id/events', function ($soccerMatchID) use ($app) {
     }
     else {
       $response["Error"] = true;
-      $response["Message"] = "Failed to create soccer match event. Please try again";
+      $response["Message"] = "Failed to create soccer match event.";
     }
     echoRespnse(201, $response);
   }
@@ -715,6 +738,44 @@ $app->delete('/soccer-matches/:soccerMatchID/events/:soccerMatchEventID', functi
         $db->deleteSoccerMatchEvent($soccerMatchEventID);
 
         echoRespnse(201, $response);
+});
+
+$app->put('/soccer-matches/:id/lineup', function ($soccerMatchID) use ($app) {
+  $response = array();
+  if (in_array("admin", $app->jwt->roles)) {
+    $db = new DbHandler();
+    $body = json_decode($app->request()->getBody());
+    $formationID = $body->{'FormationID'};
+    $positions = $body->{'Positions'};
+
+    if($formationID != NULL) {
+      $result = $db->updateSoccerMatchFormation($soccerMatchID, $formationID);
+      if($result == false) {
+        $response["Error"] = true;
+        $response["Message"] = "Failed to update soccer match lineup.";
+        echoRespnse(400, $result);
+        return;
+      }
+    }
+
+    if($positions != NULL) {
+      $db->cleanSoccerMatchLineup($soccerMatchID);
+      foreach ($positions as $position) {
+        $playerID = $position->{'PlayerID'};
+        $positionID = $position->{'PositionID'};
+        if(is_int($playerID) && is_int($positionID)) {
+          $db->createPlayerSoccerMatchEntry($soccerMatchID, $playerID, $positionID);
+        }
+      }
+    }
+
+    echoRespnse(201, $response);
+  }
+  else {
+
+    /* No scope so respond with 401 Unauthorized */
+    echoRespnse(401, $response);
+  }
 });
 
 //  ==============================
@@ -1117,6 +1178,53 @@ $app->get('/teams/:teamID', function($teamID) use ($app) {
         });
 
 /**
+ * Gets the competitions of a team for a particular season
+ * method GET
+ */
+$app->get('/teams/:teamID/seasons/:seasonID/competitions', function($teamID, $seasonID) use ($app) {
+            $req = $app->request();
+
+            $response = array();
+            $db = new DbHandler();
+
+            $competitionResult = $db->getTeamCompetitionsBySeason($teamID, $seasonID);
+            $competitions = array();
+
+            while ($competition = $competitionResult->fetch_assoc()) {
+                array_push($competitions, $competition);
+            }
+
+            $response["Error"] = false;
+            $response["Competitions"] = $competitions;
+
+            echoRespnse(200, $response);
+        });
+
+
+/**
+ * Gets the practice soccer matches of a team for a particular season
+ * method GET
+ */
+$app->get('/teams/:teamID/seasons/:seasonID/practice-matches', function($teamID, $seasonID) use ($app) {
+            $req = $app->request();
+
+            $response = array();
+            $db = new DbHandler();
+
+            $soccerMatchesResult = $db->getTeamPracticeMatchesBySeason($teamID, $seasonID);
+            $soccerMatches = array();
+
+            while ($soccerMatch = $soccerMatchesResult->fetch_assoc()) {
+                array_push($soccerMatches, $soccerMatch);
+            }
+
+            $response["Error"] = false;
+            $response["SoccerMatches"] = $soccerMatches;
+
+            echoRespnse(200, $response);
+        });
+
+/**
  * Creates a new team player
  * method POST
  * url /teams/:teamID/players
@@ -1152,6 +1260,46 @@ $app->post('/teams/:teamID/players', function ($teamID) use ($app) {
     echoRespnse(401, $response);
   }
 });
+
+/**
+ * Gets the next soccer match of aparticular team
+ * method GET
+ * url /teams/:teamID/next-soccer-match
+ */
+$app->get('/teams/:teamID/next-soccer-match', function($teamID) use ($app) {
+            $req = $app->request();
+
+            $response = array();
+            $db = new DbHandler();
+
+            $result = $db->getTeamNextSoccerMatch($teamID);
+            $nextSoccermatch = $result->fetch_assoc();
+
+            $response["Error"] = false;
+            $response["SoccerMatch"] = $nextSoccermatch;
+
+            echoRespnse(200, $response);
+        });
+
+/**
+ * Gets the last soccer match result of aparticular team
+ * method GET
+ * url /teams/:teamID/last-result'
+ */
+$app->get('/teams/:teamID/last-result', function($teamID) use ($app) {
+            $req = $app->request();
+
+            $response = array();
+            $db = new DbHandler();
+
+            $result = $db->getTeamLastResult($teamID);
+            $lastResult = $result->fetch_assoc();
+
+            $response["Error"] = false;
+            $response["SoccerMatch"] = $lastResult;
+
+            echoRespnse(200, $response);
+        });
 
 //  ==============================
 //  ======== MASTER DATA =========

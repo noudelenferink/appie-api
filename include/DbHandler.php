@@ -251,6 +251,45 @@ class DbHandler {
         return $tasks;
     }
 
+    /**
+     * Fetches all soccer matches for the given season and team id
+     * @param String $user_id id of the user
+     * @param String $seasonID id of the season
+     * @param String $teamID id of the team
+     */
+    public function getSoccerMatchesBySeasonAndTeam($user_id, $seasonID, $teamID) {
+        $stmt = $this->conn->prepare
+        ("SELECT
+            sm.SoccerMatchID
+          , CASE WHEN sm.HomeTeamID = ? THEN 1 ELSE 0 END AS IsHomeMatch
+          , t.TeamID AS OpponentTeamID
+          , t.Name AS OpponentTeam
+          , t.TeamLogoFile AS OpponentLogoUrl
+          , CASE WHEN sm.HomeTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS TeamGoals
+          , CASE WHEN sm.AwayTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS OpponentGoals
+          , sm.IsPracticeMatch
+          , sm.FallbackDateTime
+          , md.Date as MatchDate
+          , ct.DefaultStartTime
+          , cr.RoundNumber
+          , c.Name AS CompetitionName
+          FROM SoccerMatch sm
+          LEFT JOIN CompetitionRound cr on sm.CompetitionRoundID = cr.CompetitionRoundID
+          LEFT JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = cr.CompetitionID
+          LEFT JOIN Competition c on cr.CompetitionID = c.CompetitionID
+          LEFT JOIN Matchday md on cr.MatchdayID = md.MatchdayID
+          LEFT JOIN Season s on s.SeasonID = ?
+          JOIN Team t on t.TeamID = CASE WHEN sm.HomeTeamID = ? THEN sm.AwayTeamID ELSE sm.HomeTeamID END
+          WHERE (sm.HomeTeamID = ? OR sm.AwayTeamID = ?)
+            AND (c.SeasonID = ? OR (sm.IsPracticeMatch AND sm.FallbackDateTime BETWEEN s.StartDate AND s.EndDate))
+        ");
+        $stmt->bind_param("iiiiiiii", $teamID, $teamID, $teamID, $seasonID, $teamID, $teamID, $teamID, $seasonID);
+        $stmt->execute();
+        $tasks = $stmt->get_result();
+          $stmt->close();
+        return $tasks;
+    }
+
     public function getMatchesByCompetitionMatchday($user_id, $competition_matchday_id) {
         $stmt = $this->conn->prepare
         ("SELECT m.CompetitionMatchdayID
@@ -359,17 +398,64 @@ class DbHandler {
         return $tasks;
     }
 
+        /**
+     * Fetches all team competitions for the given season id
+     * @param String $user_id id of the user
+     * @param String $seasonID of the season
+     */
+    public function getTeamCompetitionsBySeason($teamID, $seasonID) {
+        $stmt = $this->conn->prepare
+        ("SELECT c.CompetitionID
+          , c.Name AS CompetitionName
+          FROM Competition c
+          JOIN CompetitionTeam ct ON c.CompetitionID = ct.CompetitionID
+          WHERE ct.TeamID = ? AND c.SeasonID = ?
+        ");
+        $stmt->bind_param("ii", $teamID, $seasonID);
+        $stmt->execute();
+        $competitions = $stmt->get_result();
+        $stmt->close();
+        return $competitions;
+    }
+
     public function getTeamsByCompetition($competitionID) {
         $stmt = $this->conn->prepare
         ("SELECT tc.TeamID
           , t.Name as TeamName
           , tc.DefaultStartTime
           , t.TeamLogoFile
+          , CAST(IFNULL(tc.PointsDeducted, 0) AS UNSIGNED) AS PointsDeducted
           FROM CompetitionTeam tc
           JOIN Team t on tc.TeamID = t.TeamID
           WHERE tc.CompetitionID = ?
         ");
         $stmt->bind_param("i", $competitionID);
+        $stmt->execute();
+        $teams = $stmt->get_result();
+        $stmt->close();
+        return $teams;
+    }
+
+
+    public function getTeamPracticeMatchesBySeason($teamID, $seasonID) {
+        $stmt = $this->conn->prepare
+        ("SELECT
+            sm.SoccerMatchID
+          , CASE WHEN sm.HomeTeamID = ? THEN 1 ELSE 0 END AS IsHomeMatch
+          , t.TeamID AS OpponentTeamID
+          , t.Name AS OpponentTeam
+          , t.TeamLogoFile AS OpponentLogoUrl
+          , CASE WHEN sm.HomeTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS TeamGoals
+          , CASE WHEN sm.AwayTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS OpponentGoals
+          , sm.FallbackDateTime
+          FROM SoccerMatch sm
+          JOIN Season s on s.SeasonID = ?
+          JOIN Team t on t.TeamID = CASE WHEN sm.HomeTeamID = ? THEN sm.AwayTeamID ELSE sm.HomeTeamID END
+          WHERE (sm.HomeTeamID = ? OR sm.AwayTeamID = ?)
+            AND sm.IsPracticeMatch = TRUE
+            AND sm.FallbackDateTime BETWEEN s.StartDate AND s.EndDate
+        ");
+        $stmt->bind_param("iiiiiii", $teamID, $teamID, $teamID, $seasonID, $teamID, $teamID, $teamID);
         $stmt->execute();
         $teams = $stmt->get_result();
         $stmt->close();
@@ -468,15 +554,16 @@ class DbHandler {
         $stmt = $this->conn->prepare
         ("SELECT t.TrainingID
                 ,t.TrainingDate
+                ,t.IsBonus
                 ,CAST(SUM(ptr.HasAttended) as signed) as TotalAttended
                 ,COUNT(ptr.PlayerTrainingID) as TotalPlayers
           FROM Training t
-          JOIN PlayerTraining ptr ON t.TrainingID = ptr.TrainingID
-          JOIN PlayerTeam pte ON ptr.PlayerID = pte.PlayerID and pte.SeasonID = ?
-          WHERE t.SeasonID = ? AND pte.TeamID = ?
+          LEFT JOIN PlayerTraining ptr ON t.TrainingID = ptr.TrainingID
+          LEFT JOIN PlayerTeam pte ON ptr.PlayerID = pte.PlayerID and pte.SeasonID = ? AND pte.TeamID = ?
+          WHERE t.SeasonID = ? AND t.TeamID = ?
           GROUP BY t.TrainingID, t.TrainingDate
         ");
-        $stmt->bind_param("iii", $seasonID, $seasonID, $teamID);
+        $stmt->bind_param("iiii", $seasonID, $teamID, $seasonID, $teamID);
         $stmt->execute();
         $trainings = $stmt->get_result();
         $stmt->close();
@@ -492,6 +579,8 @@ class DbHandler {
         $stmt = $this->conn->prepare
         ("SELECT t.TrainingID
                 ,t.TrainingDate
+                ,t.TeamID
+                ,t.IsBonus
           FROM Training t
           WHERE TrainingID = ?
         ");
@@ -651,12 +740,14 @@ class DbHandler {
 
     public function getPlayerTrainings($playerID, $seasonID) {
         $stmt = $this->conn->prepare
-        ("SELECT pt.TrainingID
+        ("SELECT t.TrainingID
           , t.TrainingDate
-          , pt.HasAttended
-          FROM PlayerTraining pt
-          JOIN Training t on pt.TrainingID = t.TrainingID
-          WHERE pt.PlayerID = ? AND t.SeasonID = ?
+          , t.IsBonus
+          , IFNULL(cast(pt.HasAttended as signed), 0) AS HasAttended
+          FROM Training t
+          JOIN PlayerTeam pte on t.TeamID = pte.TeamID and t.SeasonID = pte.SeasonID
+          LEFT JOIN PlayerTraining pt on pt.TrainingID = t.TrainingID and pt.PlayerID = pte.PlayerID
+          WHERE pte.PlayerID = ? AND t.SeasonID = ?
         ");
         $stmt->bind_param("ii", $playerID, $seasonID);
         $stmt->execute();
@@ -682,12 +773,13 @@ class DbHandler {
           , s.SeasonID
           , fp.Code AS PositionCode
           , fp.Name AS Position
-          , md.Date
-          , CASE WHEN pm.TeamID = sm.HomeTeamID THEN 1 ELSE 0 END AS IsHomeMatch
-          , t.Name AS OponentTeam
-          , t.TeamLogoFile AS OponentLogoUrl
-          , sm.HomeGoals
-          , sm.AwayGoals
+          , md.Date AS MatchDate
+          , sm.FallbackDateTime
+          , CASE WHEN pt.TeamID = sm.HomeTeamID THEN 1 ELSE 0 END AS IsHomeMatch
+          , t.Name AS OpponentTeam
+          , t.TeamLogoFile AS OpponentLogoUrl
+          , CASE WHEN pt.TeamID = sm.HomeTeamID  THEN sm.HomeGoals ELSE sm.AwayGoals END AS TeamGoals
+          , CASE WHEN pt.TeamID = sm.AwayTeamID THEN sm.HomeGoals ELSE sm.AwayGoals END AS OpponentGoals
           , CAST(IFNULL(events.Goals, 0) AS UNSIGNED) AS Goals
           , CAST(IFNULL(events.Assists, 0) AS UNSIGNED) AS Assists
           , CAST(IFNULL(events.YellowCard, 0) AS UNSIGNED) AS YellowCard
@@ -695,17 +787,18 @@ class DbHandler {
           , CAST(IFNULL(events.DoubleYellowCard, 0) AS UNSIGNED) AS DoubleYellowCard
           , c.CompetitionTypeID
           , c.Name AS CompetitionName
-          , pm.TeamID
+          , pt.TeamID
           FROM PlayerSoccerMatch pm
           JOIN SoccerMatch sm ON pm.SoccerMatchID = sm.SoccerMatchID
-          JOIN FormationPosition fp ON fp.PositionID = pm.PositionID AND fp.FormationID = sm.FormationID
-          JOIN CompetitionMatchday cm ON cm.CompetitionMatchdayID = sm.CompetitionMatchdayID
-          JOIN Matchday md ON md.MatchdayID = cm.MatchdayID
-          JOIN Competition c ON c.CompetitionID = cm.CompetitionID
+          JOIN FormationPosition fp ON fp.PositionID = pm.PositionID AND (fp.FormationID = sm.FormationID OR fp.FormationID IS NULL)
+          JOIN CompetitionRound cr ON cr.CompetitionRoundID = sm.CompetitionRoundID
+          JOIN Matchday md ON md.MatchdayID = cr.MatchdayID
+          JOIN Competition c ON c.CompetitionID = cr.CompetitionID
           JOIN Season s ON s.SeasonID = c.SeasonID
-          JOIN Team t on t.TeamID = CASE WHEN pm.TeamID = sm.HomeTeamID THEN sm.AwayTeamID ELSE sm.HomeTeamID END
+          JOIN PlayerTeam pt on pm.PlayerID = pt.PlayerID and pt.SeasonID = s.SeasonID
+          JOIN Team t on t.TeamID = CASE WHEN pt.TeamID = sm.HomeTeamID THEN sm.AwayTeamID ELSE sm.HomeTeamID END
           LEFT JOIN (SELECT sme.PlayerID
-                    , sme.MatchID
+                    , sme.SoccerMatchID
                     , SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS Goals
                     , SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS Penalties
                     , SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS Assists
@@ -714,7 +807,7 @@ class DbHandler {
                     , CASE WHEN (sme.EventID = 3 AND sme.ReferenceSoccerMatchEventID IS NOT NULL) THEN 1 ELSE 0 END AS DoubleYellowCard
                     FROM SoccerMatchEvent sme
                     WHERE sme.PlayerID = ?
-                    GROUP BY sme.PlayerID, sme.MatchID, YellowCard, RedCard, DoubleYellowCard) events on pm.PlayerID = events.PlayerID and pm.SoccerMatchID = events.MatchID
+                    GROUP BY sme.PlayerID, sme.SoccerMatchID, YellowCard, RedCard, DoubleYellowCard) events on pm.PlayerID = events.PlayerID and pm.SoccerMatchID = events.SoccerMatchID
           WHERE pm.PlayerID = ? AND s.SeasonID = ?
         ");
         $stmt->bind_param("iii", $playerID, $playerID, $seasonID);
@@ -926,6 +1019,46 @@ class DbHandler {
       return $result;
     }
 
+    public function updateSoccerMatchFormation($soccerMatchID, $formationID) {
+      $stmt = $this->conn->prepare
+      ("UPDATE SoccerMatch
+        SET FormationID = ?
+        WHERE SoccerMatchID = ?
+      ");
+
+      $stmt->bind_param("ss", $formationID, $soccerMatchID);
+      $result = $stmt->execute();
+      $stmt->close();
+      if ($this->conn->affected_rows > 0) {
+        return $this->conn->affected_rows;
+      } else {
+        return $this->conn->affected_rows;
+      }
+    }
+
+    public function cleanSoccerMatchLineup($soccerMatchID) {
+      $stmt = $this->conn->prepare
+      ("DELETE FROM PlayerSoccerMatch
+        WHERE SoccerMatchID = ?
+      ");
+
+      $stmt->bind_param("s", $soccerMatchID);
+      $result = $stmt->execute();
+      $stmt->close();
+      return $result;
+    }
+
+    public function createPlayerSoccerMatchEntry($soccerMatchID, $playerID, $positionID) {
+      $stmt = $this->conn->prepare
+        ("INSERT INTO PlayerSoccerMatch (SoccerMatchID, PlayerID, PositionID)
+          VALUES (?, ?, ?)
+        ");
+        $stmt->bind_param("sss", $soccerMatchID, $playerID, $positionID);
+        $result = $stmt->execute();
+        $stmt->close();
+        return $result;
+    }
+
     public function deleteSoccerMatch($soccerMatchID) {
       $stmt = $this->conn->prepare
       ("DELETE FROM SoccerMatch
@@ -1018,9 +1151,9 @@ class DbHandler {
           FROM PlayerSoccerMatch pm
           JOIN Player p on pm.PlayerID = p.PlayerID
           JOIN SoccerMatch m on pm.SoccerMatchID = m.SoccerMatchID
-          JOIN FormationPosition fp on pm.PositionID = fp.PositionID AND fp.FormationID = m.FormationID
-          JOIN Position pos on fp.PositionID = pos.PositionID
-          JOIN PositionType post on pos.PositionTypeID = post.PositionTypeID
+          LEFT JOIN FormationPosition fp on pm.PositionID = fp.PositionID AND (fp.FormationID = m.FormationID OR fp.FormationID IS NULL)
+          LEFT JOIN Position pos on fp.PositionID = pos.PositionID
+          LEFT JOIN PositionType post on pos.PositionTypeID = post.PositionTypeID
           WHERE pm.SoccerMatchID = ?
         ");
 
@@ -1064,9 +1197,10 @@ class DbHandler {
      */
     public function getFormationPositions($formationID) {
         $stmt = $this->conn->prepare
-        ("SELECT *
+        ("SELECT fp.*, p.PositionTypeID
           FROM FormationPosition fp
-          WHERE FormationID = ?
+          JOIN Position p on fp.PositionID = p.PositionID
+          WHERE FormationID = ? OR FormationID IS NULL
         ");
         $stmt->bind_param("i", $formationID);
         $stmt->execute();
@@ -1147,14 +1281,14 @@ class DbHandler {
           pt.PlayerID,
           GetPlayerName(pt.PlayerID) as FullName,
           pl.SurName,
-           SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS Goals,
-           SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS Penalties,
-           SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS Assists,
-           SUM(CASE WHEN sme.EventID = 2 THEN 1 ELSE 0 END) AS YellowCards,
-           SUM(CASE WHEN sme.EventID = 3 THEN 1 ELSE 0 END) AS RedCards,
-           IFNULL(ms.Minutes, 0) AS Minutes,
-           IFNULL(ps.Appearances, 0) AS Appearances,
-           IFNULL(ps.MatchesOnBench, 0) AS MatchesOnBench
+           CAST(SUM(CASE WHEN sme.EventID = 1 THEN 1 ELSE 0 END) AS UNSIGNED) AS Goals,
+           CAST(SUM(CASE WHEN sme.EventID = 5 THEN 1 ELSE 0 END) AS UNSIGNED) AS Penalties,
+           CAST(SUM(CASE WHEN sme.EventID = 7 THEN 1 ELSE 0 END) AS UNSIGNED) AS Assists,
+           CAST(SUM(CASE WHEN sme.EventID = 2 THEN 1 ELSE 0 END) AS UNSIGNED) AS YellowCards,
+           CAST(SUM(CASE WHEN sme.EventID = 3 THEN 1 ELSE 0 END) AS UNSIGNED) AS RedCards,
+           CAST(IFNULL(ms.Minutes, 0) AS UNSIGNED) AS Minutes,
+           CAST(IFNULL(ps.Appearances, 0) AS UNSIGNED) AS Appearances,
+           CAST(IFNULL(ps.MatchesOnBench, 0) AS UNSIGNED) AS MatchesOnBench
           FROM PlayerTeam pt
           JOIN Player pl on pt.PlayerID = pl.PlayerID
           LEFT JOIN Competition c on pt.SeasonID = c.SeasonID
@@ -1208,6 +1342,80 @@ class DbHandler {
         $stats = $stmt->get_result();
         $stmt->close();
         return $stats;
+    }
+
+    /**
+     * Fetches the next scheduled soccer match for the given team
+     * @param String $teamID id of the team to retrieve data for
+     */
+    public function getTeamNextSoccerMatch($teamID) {
+        $stmt = $this->conn->prepare
+        ("SELECT
+          CASE WHEN sm.HomeTeamID = ? THEN th.Name ELSE ta.Name END AS TeamName
+          , CASE WHEN sm.AwayTeamID = ? THEN th.Name ELSE ta.Name END AS OpponentName
+          , CASE WHEN sm.AwayTeamID = ? THEN th.TeamLogoFile ELSE ta.TeamLogoFile END AS OpponentLogoFile
+          , CASE WHEN sm.HomeTeamID = ? THEN 1 ELSE 0 END AS IsHomeMatch
+          , CASE WHEN sm.FallbackDateTime IS NOT NULL THEN sm.FallbackDateTime ELSE ADDTIME(md.Date,ct.DefaultStartTime) END AS ActualPlayDateTime
+          , c.Name AS Competition
+          FROM
+              SoccerMatch sm
+              JOIN CompetitionRound cr ON sm.CompetitionRoundID = cr.CompetitionRoundID
+              JOIN Competition c ON cr.CompetitionID = c.CompetitionID
+              JOIN Matchday md on cr.MatchdayID = md.MatchdayID
+              JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = cr.CompetitionID
+              JOIN Team th on sm.HomeTeamID = th.TeamID
+              JOIN Team ta on sm.AwayTeamID = ta.TeamID
+          WHERE
+            HomeGoals IS NULL AND
+              AwayGoals IS NULL AND(md.Date >= CAST(NOW() AS DATE) OR sm.FallbackDateTime >= CAST(NOW() AS DATE)) AND
+              (HomeTeamID = ? OR AwayTeamID = ?)
+          ORDER BY ActualPlayDateTime
+          LIMIT 1
+        ");
+
+        $stmt->bind_param("iiiiii", $teamID, $teamID, $teamID, $teamID, $teamID, $teamID);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $stmt->close();
+        return $result;
+    }
+
+    /**
+     * Fetches the last result for the given team
+     * @param String $teamID id of the team to retrieve data for
+     */
+    public function getTeamLastResult($teamID) {
+        $stmt = $this->conn->prepare
+        ("SELECT
+          CASE WHEN sm.HomeTeamID = ? THEN th.Name ELSE ta.Name END AS TeamName
+          , CASE WHEN sm.HomeTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS TeamGoals
+          , CASE WHEN sm.AwayTeamID = ? THEN th.Name ELSE ta.Name END AS OpponentName
+          , CASE WHEN sm.AwayTeamID = ? THEN sm.HomeGoals ELSE sm.AwayGoals END AS OpponentGoals
+          , CASE WHEN sm.AwayTeamID = ? THEN th.TeamLogoFile ELSE ta.TeamLogoFile END AS OpponentLogoFile
+          , CASE WHEN sm.HomeTeamID = ? THEN 1 ELSE 0 END AS IsHomeMatch
+          , CASE WHEN sm.FallbackDateTime IS NOT NULL THEN sm.FallbackDateTime ELSE ADDTIME(md.Date,ct.DefaultStartTime) END AS ActualPlayDateTime
+          , c.Name AS Competition
+          FROM
+              SoccerMatch sm
+              JOIN CompetitionRound cr ON sm.CompetitionRoundID = cr.CompetitionRoundID
+              JOIN Competition c ON cr.CompetitionID = c.CompetitionID
+              JOIN Matchday md on cr.MatchdayID = md.MatchdayID
+              JOIN CompetitionTeam ct on sm.HomeTeamID = ct.TeamID and ct.CompetitionID = cr.CompetitionID
+              JOIN Team th on sm.HomeTeamID = th.TeamID
+              JOIN Team ta on sm.AwayTeamID = ta.TeamID
+          WHERE
+            HomeGoals IS NOT NULL AND
+              AwayGoals IS NOT NULL AND
+              (HomeTeamID = ? OR AwayTeamID = ?)
+          ORDER BY ActualPlayDateTime DESC
+          LIMIT 1
+        ");
+
+        $stmt->bind_param("iiiiiiii", $teamID, $teamID, $teamID, $teamID, $teamID, $teamID, $teamID, $teamID);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $stmt->close();
+        return $result;
     }
 
     /**
